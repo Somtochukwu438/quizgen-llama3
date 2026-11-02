@@ -1,0 +1,18 @@
+# Exact versions used to produce the reported results
+# (Google Colab, L4 GPU, Python 3.13.16, November 2026).
+# The CUDA build used was torch 2.11.0+cu130; see the README for
+# installing the right PyTorch build for your operating system.
+torch==2.11.0
+transformers==5.22.0
+peft==0.21.2
+bitsandbytes==0.50.2
+accelerate==1.15.0
+datasets==4.8.5
+evaluate==0.4.6
+rouge_score==0.1.2
+bert_score==0.3.13
+chromadb==1.5.9
+sentence-transformers==5.7.0
+gradio==6.31.0
+beautifulsoup4==4.13.5
+scipy==1.16.3
