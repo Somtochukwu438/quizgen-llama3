@@ -13,9 +13,14 @@ def parse_output(text):
     """Parse one model output.
 
     Returns (result, error):
-      result: dict with question, answer, distractors, strict, or None if invalid
-      error:  None if valid, otherwise a short reason code
-    strict is True when the output was ONLY the JSON object, with no extra text.
+      result: dict with question, answer, distractors and quality flags,
+              or None if the output does not have the required JSON structure
+      error:  None if the structure is valid, otherwise a short reason code
+
+    Quality flags (only set on structurally valid outputs):
+      strict                 output was ONLY the JSON object, no extra text
+      answer_repeated        the correct answer also appears as a distractor
+      distractor_duplicates  two or more distractors are identical
     """
     raw = text.strip()
     cleaned = FENCE_RE.sub("", raw).strip()
@@ -41,12 +46,13 @@ def parse_output(text):
         isinstance(x, str) and x.strip() for x in d
     ):
         return None, "bad_distractors"
-    if _norm(a) in {_norm(x) for x in d}:
-        return None, "answer_in_distractors"
 
+    d_norm = [_norm(x) for x in d]
     return {
         "question": q.strip(),
         "answer": a.strip(),
         "distractors": [x.strip() for x in d],
         "strict": raw == blob,
+        "answer_repeated": _norm(a) in d_norm,
+        "distractor_duplicates": len(set(d_norm)) < 3,
     }, None
