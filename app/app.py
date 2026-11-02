@@ -43,12 +43,8 @@ def build_app(model, tok, index):
 
     def make_quiz(source, topic, text, n):
         passages, labels = get_passages(source, topic, text, int(n))
-        if not passages:
-            msg = "Enter a topic, or paste at least a few sentences of text."
-            hidden = [gr.Markdown(visible=False)] * MAX_Q
-            return [msg, []] + hidden + [gr.Radio(choices=[], value=None, visible=False)] * MAX_Q + hidden
-        records = generate_quiz(model, tok, passages)
-        answers, qs, radios = [], [], []
+        records = generate_quiz(model, tok, passages) if passages else []
+        answers, cols, qs, radios, feedback = [], [], [], [], []
         for i in range(MAX_Q):
             rec = records[i] if i < len(records) else None
             if rec and rec["parsed"]:
@@ -56,25 +52,29 @@ def build_app(model, tok, index):
                 options = [p["answer"]] + p["distractors"]
                 random.shuffle(options)
                 answers.append(p["answer"])
-                qs.append(gr.Markdown(f"**Q{i + 1}. {p['question']}**  \n_Source: {labels[i]}_",
-                                      visible=True))
-                radios.append(gr.Radio(choices=options, value=None, visible=True,
-                                       label="Your answer"))
+                cols.append(gr.Column(visible=True))
+                qs.append(gr.Markdown(f"**Q{i + 1}. {p['question']}**  \n_Source: {labels[i]}_"))
+                radios.append(gr.Radio(choices=options, value=None))
             else:
                 answers.append(None)
-                qs.append(gr.Markdown(visible=False))
-                radios.append(gr.Radio(choices=[], value=None, visible=False))
+                cols.append(gr.Column(visible=False))
+                qs.append(gr.Markdown(""))
+                radios.append(gr.Radio(choices=[], value=None))
+            feedback.append(gr.Markdown(""))
         made = sum(a is not None for a in answers)
-        feedback = [gr.Markdown(visible=False)] * MAX_Q
-        return [f"Generated {made} question(s). Pick an answer to check it."] + [answers] + qs + radios + feedback
+        if not passages:
+            status = "Enter a topic, or paste at least a few sentences of text."
+        else:
+            status = f"Generated {made} question(s). Pick an answer to check it."
+        return [status, answers] + cols + qs + radios + feedback
 
     def make_feedback(i):
         def check(choice, answers):
             if not answers or i >= len(answers) or answers[i] is None or choice is None:
-                return gr.Markdown(visible=False)
+                return ""
             if choice == answers[i]:
-                return gr.Markdown("✅ Correct!", visible=True)
-            return gr.Markdown(f"❌ Not quite. The answer is **{answers[i]}**.", visible=True)
+                return "✅ Correct!"
+            return f"❌ Not quite. The answer is **{answers[i]}**."
         return check
 
     def compare(source, topic, text):
@@ -103,15 +103,17 @@ def build_app(model, tok, index):
 
         status = gr.Markdown()
         answers = gr.State([])
-        qs, radios, feedback = [], [], []
+        cols, qs, radios, feedback = [], [], [], []
         for i in range(MAX_Q):
-            qs.append(gr.Markdown(visible=False))
-            radios.append(gr.Radio(choices=[], visible=False))
-            feedback.append(gr.Markdown(visible=False))
+            with gr.Column(visible=False) as col:
+                qs.append(gr.Markdown())
+                radios.append(gr.Radio(choices=[], label="Your answer", interactive=True))
+                feedback.append(gr.Markdown())
+            cols.append(col)
         for i in range(MAX_Q):
             radios[i].change(make_feedback(i), inputs=[radios[i], answers], outputs=feedback[i])
         quiz_btn.click(make_quiz, inputs=[source, topic, text, n],
-                       outputs=[status, answers] + qs + radios + feedback)
+                       outputs=[status, answers] + cols + qs + radios + feedback)
 
         with gr.Accordion("Model comparison", open=False):
             passage_md = gr.Markdown()
