@@ -68,15 +68,19 @@ def needs_retry(parsed):
 
 
 def _tokens(s):
-    return set(re.findall(r"[a-z0-9]+", s.lower()))
+    """Lowercased words, with a crude plural strip so "shortage" matches "shortages"."""
+    words = re.findall(r"[a-z0-9]+", s.lower())
+    return {w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+            for w in words}
 
 
 def near_duplicate(parsed, threshold=0.8):
     """True if any distractor shares most of its words with the answer.
 
     Catches near-copies that exact matching misses, e.g. "insomnia, apnea, ..."
-    vs "insomnia, sleep apnea, ...". Short answers are unaffected in practice:
-    "hypothalamus" vs "hypothalamus nucleus" shares only half its words.
+    vs "insomnia, sleep apnea, ...", or "shortage" vs "shortages". Legitimately
+    similar options are unaffected: "rem sleep" vs "nrem sleep" shares only half
+    its words.
     """
     answer = _tokens(parsed["answer"])
     for d in parsed["distractors"]:
