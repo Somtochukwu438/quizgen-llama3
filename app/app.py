@@ -53,8 +53,9 @@ def build_app(model, tok, index, checker=None):
                 options = [p["answer"]] + p["distractors"]
                 random.shuffle(options)
                 answers.append(p["answer"])
-                warn = ("  \n⚠️ _This answer could not be verified against the source._"
-                        if rec["flagged"] else "")
+                warn = ("  \n⚠️ _This question still failed a quality check after 3 attempts "
+        "(answer options may be too similar)._"
+        if rec["flagged"] else "")
                 cols.append(gr.Column(visible=True))
                 qs.append(gr.Markdown(f"**Q{i + 1}. {p['question']}**  \n_Source: {labels[i]}_{warn}"))
                 radios.append(gr.Radio(choices=options, value=None))
