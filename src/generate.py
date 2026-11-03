@@ -39,7 +39,7 @@ def generate(model, tok, passages, sample=False, batch_size=8, max_new_tokens=20
     """Generate one raw output per passage.
 
     sample=False is greedy decoding (used for evaluation); sample=True uses light
-    sampling (used for regeneration, so a retry can differ from the failed output).
+    sampling (used for regeneration and for varied demo quizzes).
     """
     import torch
 
@@ -66,17 +66,21 @@ def needs_retry(parsed):
     return parsed is None or parsed["answer_repeated"] or parsed["distractor_duplicates"]
 
 
-def generate_quiz(model, tok, passages, use_adapter=True, max_tries=3):
-    """Generate one question per passage: greedy first, then sampled retries for failures.
+def generate_quiz(model, tok, passages, use_adapter=True, max_tries=3, fresh=False):
+    """Generate one question per passage, with validation and up to max_tries attempts.
+
+    fresh=False: the first attempt is greedy, so results are repeatable
+                 (used for evaluation and the model comparison).
+    fresh=True:  every attempt is sampled, so each call gives new questions
+                 (used by the demo's quiz, so the same topic gives varied practice).
 
     Returns a list of dicts with passage, raw, parsed, error and attempts.
-    use_adapter=False turns the LoRA adapter off, which makes the same loaded
-    model behave as the baseline.
+    use_adapter=False turns the LoRA adapter off, so the model behaves as the baseline.
     """
     off = not use_adapter and hasattr(model, "disable_adapter")
     with (model.disable_adapter() if off else nullcontext()):
         records = []
-        for p, out in zip(passages, generate(model, tok, passages)):
+        for p, out in zip(passages, generate(model, tok, passages, sample=fresh)):
             parsed, err = parse_output(out)
             records.append({"passage": p, "raw": out, "parsed": parsed,
                             "error": err, "attempts": 1})
