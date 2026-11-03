@@ -90,21 +90,42 @@ def near_duplicate(parsed, threshold=0.8):
     return False
 
 
-def generate_quiz(model, tok, passages, use_adapter=True, max_tries=3, fresh=False, strict=False):
+def _failing(records, strict, checker, check_threshold):
+    """Indices of records that should be regenerated."""
+    fail = [i for i, r in enumerate(records)
+            if needs_retry(r["parsed"]) or (strict and near_duplicate(r["parsed"]))]
+    if checker is not None:
+        rest = [i for i in range(len(records)) if i not in fail]
+        if rest:
+            ok = checker.answerable(
+                [records[i]["parsed"]["question"] for i in rest],
+                [records[i]["parsed"]["answer"] for i in rest],
+                [records[i]["passage"] for i in rest],
+                threshold=check_threshold,
+            )
+            fail += [i for i, good in zip(rest, ok) if not good]
+    return sorted(fail)
+
+
+def generate_quiz(model, tok, passages, use_adapter=True, max_tries=3, fresh=False,
+                  strict=False, checker=None, check_threshold=0.67):
     """Generate one question per passage, with validation and up to max_tries attempts.
 
-    fresh=False: the first attempt is greedy, so results are repeatable
-                 (used for evaluation and the model comparison).
-    fresh=True:  every attempt is sampled, so each call gives new questions.
-    strict=True: also retry near-duplicate distractors (used by the demo only;
-                 the reported evaluation used the exact-match checks alone).
+    fresh=False:  the first attempt is greedy, so results are repeatable
+                  (used for evaluation and the model comparison).
+    fresh=True:   every attempt is sampled, so each call gives new questions.
+    strict=True:  also retry near-duplicate distractors.
+    checker:      an AnswerChecker; if given, also retry questions whose answer key
+                  the QA model cannot recover from the passage. check_threshold is
+                  stricter than the evaluation's 0.5 because a one-word difference
+                  (e.g. "rem sleep" vs "nrem sleep") can flip the meaning.
+    strict and checker are used by the demo only; the reported evaluation used
+    the exact-match checks alone.
 
-    Returns a list of dicts with passage, raw, parsed, error and attempts.
+    Returns a list of dicts with passage, raw, parsed, error, attempts and flagged
+    (True if the final question still failed validation after all attempts).
     use_adapter=False turns the LoRA adapter off, so the model behaves as the baseline.
     """
-    def bad(parsed):
-        return needs_retry(parsed) or (strict and near_duplicate(parsed))
-
     off = not use_adapter and hasattr(model, "disable_adapter")
     with (model.disable_adapter() if off else nullcontext()):
         records = []
@@ -113,7 +134,7 @@ def generate_quiz(model, tok, passages, use_adapter=True, max_tries=3, fresh=Fal
             records.append({"passage": p, "raw": out, "parsed": parsed,
                             "error": err, "attempts": 1})
         for _ in range(max_tries - 1):
-            idx = [i for i, r in enumerate(records) if bad(r["parsed"])]
+            idx = _failing(records, strict, checker, check_threshold)
             if not idx:
                 break
             retries = generate(model, tok, [records[i]["passage"] for i in idx], sample=True)
@@ -121,4 +142,7 @@ def generate_quiz(model, tok, passages, use_adapter=True, max_tries=3, fresh=Fal
                 parsed, err = parse_output(out)
                 records[i].update(raw=out, parsed=parsed, error=err,
                                   attempts=records[i]["attempts"] + 1)
+        flagged = set(_failing(records, strict, checker, check_threshold))
+        for i, r in enumerate(records):
+            r["flagged"] = i in flagged
     return records

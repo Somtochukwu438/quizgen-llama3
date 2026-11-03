@@ -33,7 +33,7 @@ def format_record(title, rec):
             f"**Distractors:** {', '.join(p['distractors'])}\n\n_Attempts: {rec['attempts']}_")
 
 
-def build_app(model, tok, index):
+def build_app(model, tok, index, checker=None):
     def get_passages(source, topic, text, n):
         if source == NOTES:
             hits = index.search(topic, k=n) if topic.strip() else []
@@ -43,7 +43,8 @@ def build_app(model, tok, index):
 
     def make_quiz(source, topic, text, n):
         passages, labels = get_passages(source, topic, text, int(n))
-        records = generate_quiz(model, tok, passages, fresh=True, strict=True) if passages else []
+        records = (generate_quiz(model, tok, passages, fresh=True, strict=True, checker=checker)
+                   if passages else [])
         answers, cols, qs, radios, feedback = [], [], [], [], []
         for i in range(MAX_Q):
             rec = records[i] if i < len(records) else None
@@ -52,8 +53,10 @@ def build_app(model, tok, index):
                 options = [p["answer"]] + p["distractors"]
                 random.shuffle(options)
                 answers.append(p["answer"])
+                warn = ("  \n⚠️ _This answer could not be verified against the source._"
+                        if rec["flagged"] else "")
                 cols.append(gr.Column(visible=True))
-                qs.append(gr.Markdown(f"**Q{i + 1}. {p['question']}**  \n_Source: {labels[i]}_"))
+                qs.append(gr.Markdown(f"**Q{i + 1}. {p['question']}**  \n_Source: {labels[i]}_{warn}"))
                 radios.append(gr.Radio(choices=options, value=None))
             else:
                 answers.append(None)
@@ -90,6 +93,8 @@ def build_app(model, tok, index):
     with gr.Blocks(title="Quiz Generator: Llama 3.2 + LoRA") as demo:
         gr.Markdown("# Quiz Generator\nLlama 3.2 3B fine-tuned with LoRA on SciQ, "
                     "with retrieval over biological psychology notes.")
+        gr.Markdown("_Questions are generated automatically and may contain errors, "
+                    "including incorrect answer keys._")
         source = gr.Radio([NOTES, OWN_TEXT], value=NOTES, label="Where should questions come from?")
         topic = gr.Textbox(label="Topic", placeholder="e.g. sleep stages, pain, brain imaging")
         text = gr.Textbox(label="Your text", lines=8, visible=False,
