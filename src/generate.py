@@ -3,6 +3,7 @@
 Shared by the evaluation notebook and the demo app, so both use exactly the
 same tested code path.
 """
+import re
 from contextlib import nullcontext
 
 from .parse import parse_output
@@ -62,21 +63,44 @@ def generate(model, tok, passages, sample=False, batch_size=8, max_new_tokens=20
 
 
 def needs_retry(parsed):
-    """True if the output is unusable as a quiz question."""
+    """True if the output is unusable as a quiz question (exact-match checks)."""
     return parsed is None or parsed["answer_repeated"] or parsed["distractor_duplicates"]
 
 
-def generate_quiz(model, tok, passages, use_adapter=True, max_tries=3, fresh=False):
+def _tokens(s):
+    return set(re.findall(r"[a-z0-9]+", s.lower()))
+
+
+def near_duplicate(parsed, threshold=0.8):
+    """True if any distractor shares most of its words with the answer.
+
+    Catches near-copies that exact matching misses, e.g. "insomnia, apnea, ..."
+    vs "insomnia, sleep apnea, ...". Short answers are unaffected in practice:
+    "hypothalamus" vs "hypothalamus nucleus" shares only half its words.
+    """
+    answer = _tokens(parsed["answer"])
+    for d in parsed["distractors"]:
+        dist = _tokens(d)
+        if answer and dist and len(answer & dist) / max(len(answer), len(dist)) >= threshold:
+            return True
+    return False
+
+
+def generate_quiz(model, tok, passages, use_adapter=True, max_tries=3, fresh=False, strict=False):
     """Generate one question per passage, with validation and up to max_tries attempts.
 
     fresh=False: the first attempt is greedy, so results are repeatable
                  (used for evaluation and the model comparison).
-    fresh=True:  every attempt is sampled, so each call gives new questions
-                 (used by the demo's quiz, so the same topic gives varied practice).
+    fresh=True:  every attempt is sampled, so each call gives new questions.
+    strict=True: also retry near-duplicate distractors (used by the demo only;
+                 the reported evaluation used the exact-match checks alone).
 
     Returns a list of dicts with passage, raw, parsed, error and attempts.
     use_adapter=False turns the LoRA adapter off, so the model behaves as the baseline.
     """
+    def bad(parsed):
+        return needs_retry(parsed) or (strict and near_duplicate(parsed))
+
     off = not use_adapter and hasattr(model, "disable_adapter")
     with (model.disable_adapter() if off else nullcontext()):
         records = []
@@ -85,7 +109,7 @@ def generate_quiz(model, tok, passages, use_adapter=True, max_tries=3, fresh=Fal
             records.append({"passage": p, "raw": out, "parsed": parsed,
                             "error": err, "attempts": 1})
         for _ in range(max_tries - 1):
-            idx = [i for i, r in enumerate(records) if needs_retry(r["parsed"])]
+            idx = [i for i, r in enumerate(records) if bad(r["parsed"])]
             if not idx:
                 break
             retries = generate(model, tok, [records[i]["passage"] for i in idx], sample=True)

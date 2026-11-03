@@ -43,7 +43,7 @@ def build_app(model, tok, index):
 
     def make_quiz(source, topic, text, n):
         passages, labels = get_passages(source, topic, text, int(n))
-        records = generate_quiz(model, tok, passages, fresh=True) if passages else []
+        records = generate_quiz(model, tok, passages, fresh=True, strict=True) if passages else []
         answers, cols, qs, radios, feedback = [], [], [], [], []
         for i in range(MAX_Q):
             rec = records[i] if i < len(records) else None
